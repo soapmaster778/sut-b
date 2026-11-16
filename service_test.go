@@ -28,13 +28,6 @@ func TestCalculateTotal(t *testing.T) {
 			days:     6,
 			want:     60000,
 		},
-		//{
-		//	name:     "seven_days_discount",
-		//	rate:     10000,
-		//	quantity: 1,
-		//	days:     7,
-		//	want:     65000,
-		//},
 		{
 			name:     "seven_days_discount",
 			rate:     10000,

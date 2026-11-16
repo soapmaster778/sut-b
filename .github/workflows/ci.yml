@@ -1,0 +1,114 @@
+name: SUT B CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build project
+        run: |
+          mkdir -p reports dist
+          go build ./... 2>&1 | tee reports/build.log
+          go build -o dist/rental-api ./cmd/api 2>&1 | tee -a reports/build.log
+
+      - name: Upload build results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-results
+          path: |
+            reports/build.log
+            dist/rental-api
+          retention-days: 14
+          if-no-files-found: warn
+
+  unit:
+    name: Unit tests
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run unit tests
+        id: unit-tests
+        run: |
+          mkdir -p reports
+          go test -count=1 -timeout=2m -coverprofile=reports/unit-coverage.out -json ./... 2>&1 | tee reports/unit-tests.json
+
+      - name: Generate coverage HTML
+        if: ${{ !cancelled() && steps.unit-tests.outcome != 'skipped' && hashFiles('reports/unit-coverage.out') != '' }}
+        run: go tool cover -html=reports/unit-coverage.out -o reports/unit-coverage.html
+
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: reports/
+          retention-days: 14
+          if-no-files-found: warn
+
+  integration:
+    name: Integration tests
+    needs: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check Docker
+        run: docker info
+
+      - name: Run PostgreSQL integration and regression tests
+        run: |
+          mkdir -p reports
+          go test -tags=regression -count=1 -shuffle=101 -timeout=5m -json ./... 2>&1 | tee reports/integration-tests.json
+
+      - name: Upload integration test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: reports/
+          retention-days: 14
+          if-no-files-found: warn
